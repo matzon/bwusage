@@ -47,7 +47,6 @@ public class BWUsage {
     public BWUsage() {
     }
 
-
     private void save(String _page) throws IOException, ParseException {
         Document dom = Jsoup.parse(_page);
 
@@ -87,7 +86,7 @@ public class BWUsage {
             // setup
             BasicCookieStore cookieStore = new BasicCookieStore();
 
-            // allow self-signed
+            // allow self-signed and untrusted certs
             SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new TrustStrategy() {
                 public boolean isTrusted(X509Certificate[] chain, String authType) throws CertificateException {
                     return true;
@@ -140,11 +139,13 @@ public class BWUsage {
         HibernateUtil.getSessionFactory().close();
     }
 
-    public static void main(String[] args) throws IOException, NoSuchAlgorithmException, KeyStoreException, KeyManagementException, ParseException {
+    public static void main(String[] args) throws Exception {
         BWUsage bwUsage = new BWUsage();
         bwUsage.init();
         String entity = bwUsage.download();
-        bwUsage.save(entity);
+        if (entity != null) {
+            bwUsage.save(entity);
+        }
         bwUsage.shutdown();
     }
 }
