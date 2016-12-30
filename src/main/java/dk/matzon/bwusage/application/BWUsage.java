@@ -6,6 +6,7 @@ import dk.matzon.bwusage.domain.model.BWEntry;
 import dk.matzon.bwusage.infrastructure.persistence.BWEntryRepositoryImpl;
 import dk.matzon.bwusage.infrastructure.persistence.HibernateUtil;
 import org.apache.commons.lang3.time.DateUtils;
+import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -18,6 +19,8 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.hibernate.SessionFactory;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -33,15 +36,28 @@ import java.security.cert.X509Certificate;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by Brian Matzon <brian@matzon.dk>
  */
 public class BWUsage {
+    private Logger LOGGER = LogManager.getLogger(BWUsage.class);
 
     private Properties properties = new Properties();
 
+    private ScheduledExecutorService scheduledExecutorService;
+
+    private ScheduledFuture<?> scheduledFuture;
+
     private BWEntryRepository repository;
+
+    private int errorCount = 0;
+
+    private volatile boolean active = false;
+
+    private ReentrantLock lock = new ReentrantLock();
 
     public BWUsage() {
     }
@@ -81,7 +97,7 @@ public class BWUsage {
 
         Document dom = Jsoup.parse(_page);
 
-        // get the table with the elements, expecting groups of 3
+        // get the table with the elements, expecting groups of 3 (yes, shitty html, nothing sane to select by)
         Elements bwTable = dom.select("[style*=border:1px dotted #000000]");
         Elements tds = bwTable.select("td");
 
@@ -96,7 +112,7 @@ public class BWUsage {
             Date parsedDate = sdf.parse(date);
             BWEntry entry = new BWEntry(parsedDate, upload, download);
             entries.add(entry);
-            System.out.println("Parsed entry: " + entry);
+            LOGGER.info("Parsed entry: " + entry);
         }
         return entries;
     }
@@ -145,7 +161,7 @@ public class BWUsage {
                     return EntityUtils.toString(entity);
                 }
             } else {
-                System.out.println("unable to login: " + response.getStatusLine());
+                LOGGER.warn("unable to login: " + response.getStatusLine());
             }
         } finally {
             if (client != null) {
@@ -166,11 +182,112 @@ public class BWUsage {
         // configure db
         SessionFactory sessionFactory = HibernateUtil.getSessionFactory();
         repository = new BWEntryRepositoryImpl(sessionFactory);
+
+        // schedule main flow at fixed rate
+        scheduledExecutorService = Executors.newScheduledThreadPool(1);
+        scheduledFuture = scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    mainFlow();
+                } catch (Exception _e) {
+                    LOGGER.warn("Exception occured: " + _e.getMessage());
+                    if (++errorCount == Integer.valueOf(properties.getProperty("maxerrorcount"))) {
+                        prepareShutdown();
+                    }
+                }
+            }
+        }, 0, Long.parseLong(properties.getProperty("period")), TimeUnit.MINUTES);
+
+        active = true;
     }
 
+    private void prepareShutdown() {
+        LOGGER.info("prepareShutdown invoked");
+        scheduledExecutorService.shutdown();
+        active = false;
+    }
+
+    private void mainFlow() throws Exception {
+        lock.lock();
+        try {
+            // gather
+            String entity = download();
+
+            // extract
+            List<BWEntry> entries = extract(entity);
+
+            // persist
+            if (!entries.isEmpty()) {
+                save(entries);
+            }
+
+            // report
+            report();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    private void handleCommand(String _command) {
+        String command = _command.trim().toLowerCase();
+        switch (command) {
+            case "quit":
+                prepareShutdown();
+                break;
+            case "lmonth":
+                list(Calendar.MONTH);
+                break;
+            case "run":
+                try {
+                    mainFlow();
+                } catch (Exception e) {
+                    LOGGER.warn("Exception while running mainFlow from console: " + e.getMessage());
+                }
+                break;
+            default:
+                System.out.println("Unknown command '" + command + "'");
+                break;
+        }
+    }
+
+    private void list(int _type) {
+        if (_type == Calendar.MONTH) {
+            Date now = new Date();
+            Date startOfMonth = DateUtils.truncate(now, Calendar.MONTH);
+            Date endOfMonth = DateUtils.addMinutes(DateUtils.ceiling(now, Calendar.MONTH), -1);
+            List<BWEntry> byDate = repository.findByDate(startOfMonth, endOfMonth);
+            for (BWEntry bwEntry : byDate) {
+                System.out.println(bwEntry);
+            }
+        } else {
+            System.out.println("unsupported list: " + _type);
+        }
+    }
+
+
     private void shutdown() {
+        try {
+            scheduledExecutorService.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException _e) {
+            LOGGER.warn("Exception while waiting for scheduled executor service to terminate: " + _e.getMessage());
+        }
         HibernateUtil.getSessionFactory().close();
     }
+
+    private String timeForNextJob() {
+        long delay = scheduledFuture.getDelay(TimeUnit.MILLISECONDS);
+        String formattedDelay = "00:00";
+        if (delay > 0) {
+            formattedDelay = DurationFormatUtils.formatDuration(delay, "mm:ss");
+        }
+        return formattedDelay;
+    }
+
 
     /**
      * Main entry point for application. General flow:
@@ -188,19 +305,14 @@ public class BWUsage {
         BWUsage bwUsage = new BWUsage();
         bwUsage.init();
 
-        // gather
-        String entity = bwUsage.download();
+        System.out.println("BWUsage running...");
 
-        // extract
-        List<BWEntry> entries = bwUsage.extract(entity);
-
-        // persist
-        if (!entries.isEmpty()) {
-            bwUsage.save(entries);
+        Scanner input = new Scanner(System.in);
+        while (bwUsage.isActive()) {
+            System.out.printf("(" + bwUsage.timeForNextJob() + ") $> ");
+            String command = input.nextLine();
+            bwUsage.handleCommand(command);
         }
-
-        // report
-        bwUsage.report();
 
         bwUsage.shutdown();
     }

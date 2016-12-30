@@ -4,3 +4,5 @@
 bwusage.iml
 target/
 /src/main/resources/config.properties
+/data/
+/logs/
