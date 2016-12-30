@@ -78,7 +78,7 @@ public class BWEntryRepositoryImpl implements BWEntryRepository {
         try {
             currentSession = sessionFactory.getCurrentSession();
             tx = currentSession.beginTransaction();
-            currentSession.save(_entry);
+            currentSession.saveOrUpdate(_entry);
             tx.commit();
             return _entry;
         } catch (HibernateException _he) {

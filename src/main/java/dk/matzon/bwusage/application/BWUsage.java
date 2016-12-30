@@ -1,9 +1,11 @@
 package dk.matzon.bwusage.application;
 
+import com.google.gson.Gson;
 import dk.matzon.bwusage.domain.BWEntryRepository;
 import dk.matzon.bwusage.domain.model.BWEntry;
 import dk.matzon.bwusage.infrastructure.persistence.BWEntryRepositoryImpl;
 import dk.matzon.bwusage.infrastructure.persistence.HibernateUtil;
+import org.apache.commons.lang3.time.DateUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -22,8 +24,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 
 import javax.net.ssl.SSLContext;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -31,9 +32,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * Created by Brian Matzon <brian@matzon.dk>
@@ -47,7 +46,39 @@ public class BWUsage {
     public BWUsage() {
     }
 
-    private void save(String _page) throws IOException, ParseException {
+    private void report() throws IOException {
+        Date now = new Date();
+        reportForMonth(now);
+
+        // handle monthly overlap, by running previous month too, if first of month
+        Date yesterday = DateUtils.addDays(now, -1);
+        if (DateUtils.toCalendar(now).get(Calendar.MONTH) != DateUtils.toCalendar(yesterday).get(Calendar.MONTH)) {
+            reportForMonth(yesterday);
+        }
+    }
+
+    private void reportForMonth(Date _date) throws IOException {
+
+        Date startOfMonth = DateUtils.truncate(_date, Calendar.MONTH);
+        Date endOfMonth = DateUtils.addMinutes(DateUtils.ceiling(_date, Calendar.MONTH), -1);
+
+        Calendar calendar = DateUtils.toCalendar(startOfMonth);
+        String month = String.valueOf(calendar.get(Calendar.MONTH) + 1);
+        String year = String.valueOf(calendar.get(Calendar.YEAR));
+
+        /* generate monthly report */
+        List<BWEntry> monthly = repository.findByDate(startOfMonth, endOfMonth);
+        Gson gson = new Gson();
+        String json = gson.toJson(monthly);
+
+        OutputStreamWriter outputStreamWriter = new OutputStreamWriter(new FileOutputStream(new File(String.format("data/reports/%s-%s.json", year, month))));
+        outputStreamWriter.write(json);
+        outputStreamWriter.close();
+    }
+
+    private List<BWEntry> extract(String _page) throws Exception {
+        List<BWEntry> entries = new ArrayList<>();
+
         Document dom = Jsoup.parse(_page);
 
         // get the table with the elements, expecting groups of 3
@@ -63,19 +94,17 @@ public class BWUsage {
             String upload = tds.get(i * 3 + 1).text();
             String download = tds.get(i * 3 + 2).text();
             Date parsedDate = sdf.parse(date);
-            repository.save(new BWEntry(parsedDate, upload, download));
+            BWEntry entry = new BWEntry(parsedDate, upload, download);
+            entries.add(entry);
+            System.out.println("Parsed entry: " + entry);
         }
+        return entries;
+    }
 
-        System.out.println("all done, listing from DB:");
-        List<BWEntry> all = repository.findAll();
-        for (BWEntry bwEntry : all) {
-            System.out.println(" * " + bwEntry);
-        }
 
-        System.out.println("listing between dates:");
-        List<BWEntry> byDate = repository.findByDate(sdf.parse("16-12-2016 00:00:00"), sdf.parse("19-12-2016 00:00:00"));
-        for (BWEntry bwEntry : byDate) {
-            System.out.println(" * " + bwEntry);
+    private void save(List<BWEntry> _entries) throws IOException, ParseException {
+        for (BWEntry entry : _entries) {
+            repository.save(entry);
         }
     }
 
@@ -130,6 +159,10 @@ public class BWUsage {
         InputStream configInputStream = BWUsage.class.getResourceAsStream("/config.properties");
         properties.load(configInputStream);
 
+        // prepare directories
+        new File("data/db").mkdirs();
+        new File("data/reports").mkdirs();
+
         // configure db
         SessionFactory sessionFactory = HibernateUtil.getSessionFactory();
         repository = new BWEntryRepositoryImpl(sessionFactory);
@@ -139,13 +172,36 @@ public class BWUsage {
         HibernateUtil.getSessionFactory().close();
     }
 
+    /**
+     * Main entry point for application. General flow:
+     * <ul>
+     * <li>gather</li>
+     * <li>extract</li>
+     * <li>persist</li>
+     * <li>report</li>
+     * </ul>
+     *
+     * @param args
+     * @throws Exception
+     */
     public static void main(String[] args) throws Exception {
         BWUsage bwUsage = new BWUsage();
         bwUsage.init();
+
+        // gather
         String entity = bwUsage.download();
-        if (entity != null) {
-            bwUsage.save(entity);
+
+        // extract
+        List<BWEntry> entries = bwUsage.extract(entity);
+
+        // persist
+        if (!entries.isEmpty()) {
+            bwUsage.save(entries);
         }
+
+        // report
+        bwUsage.report();
+
         bwUsage.shutdown();
     }
 }
