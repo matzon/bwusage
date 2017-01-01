@@ -4,14 +4,12 @@ import com.google.gson.Gson;
 import dk.matzon.bwusage.domain.ReportGenerator;
 import dk.matzon.bwusage.domain.Repository;
 import dk.matzon.bwusage.domain.model.BWEntry;
+import dk.matzon.bwusage.domain.model.BWHistoricalEntry;
 import org.apache.commons.lang3.time.DateUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -24,6 +22,7 @@ public class ReportGeneratorImpl implements ReportGenerator {
     private final Logger LOGGER = LogManager.getLogger(ReportGeneratorImpl.class);
     private final ScheduledExecutorService scheduledExecutorService;
     private final Repository<BWEntry> repository;
+    private Repository<BWHistoricalEntry> historicalRepository;
     private final Properties properties;
 
     private ScheduledFuture<?> scheduledTodayFuture;
@@ -33,9 +32,10 @@ public class ReportGeneratorImpl implements ReportGenerator {
 
     private Date lastRun;
 
-    public ReportGeneratorImpl(ScheduledExecutorService _scheduledExecutorService, Repository<BWEntry> _repository, Properties _properties) {
+    public ReportGeneratorImpl(ScheduledExecutorService _scheduledExecutorService, Repository<BWEntry> _repository, Repository<BWHistoricalEntry> _historicalRepository, Properties _properties) {
         scheduledExecutorService = _scheduledExecutorService;
         repository = _repository;
+        historicalRepository = _historicalRepository;
         properties = _properties;
     }
 
@@ -109,7 +109,7 @@ public class ReportGeneratorImpl implements ReportGenerator {
 
     @Override
     public void list(REPORT_TYPE _reportType) {
-        List<BWEntry> entries = null;
+        List<? extends Serializable> entries = null;
 
         try {
             switch (_reportType) {
@@ -127,8 +127,8 @@ public class ReportGeneratorImpl implements ReportGenerator {
             entries = Collections.emptyList();
         }
 
-        for (BWEntry entry : entries) {
-            System.out.println(entry);
+        for (Serializable s : entries) {
+            System.out.println(s);
         }
     }
 
@@ -155,7 +155,7 @@ public class ReportGeneratorImpl implements ReportGenerator {
         return monthly;
     }
 
-    private List<BWEntry> reportForToday(Date _date, boolean _writeReport) throws IOException {
+    private List<BWHistoricalEntry> reportForToday(Date _date, boolean _writeReport) throws IOException {
         Date startOfDay = DateUtils.truncate(_date, Calendar.DAY_OF_MONTH);
         Date endOfDay = DateUtils.addSeconds(DateUtils.ceiling(_date, Calendar.DAY_OF_MONTH), -1);
 
@@ -164,14 +164,14 @@ public class ReportGeneratorImpl implements ReportGenerator {
         String month = String.valueOf(calendar.get(Calendar.MONTH) + 1);
         String day = String.valueOf(calendar.get(Calendar.DAY_OF_MONTH));
 
-        List<BWEntry> today = repository.findByDate(startOfDay, endOfDay);
+        List<BWHistoricalEntry> today = historicalRepository.findByDate(startOfDay, endOfDay);
         if (_writeReport) {
             writeReport(today, String.format("data/reports/%s-%s-%s.json", year, month, day));
         }
         return today;
     }
 
-    private void writeReport(List<BWEntry> _entries, String name) throws IOException {
+    private void writeReport(List<? extends Serializable> _entries, String name) throws IOException {
         Gson gson = new Gson();
         String json = gson.toJson(_entries);
 

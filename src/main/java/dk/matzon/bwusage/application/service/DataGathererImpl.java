@@ -3,6 +3,8 @@ package dk.matzon.bwusage.application.service;
 import dk.matzon.bwusage.domain.DataGatherer;
 import dk.matzon.bwusage.domain.Repository;
 import dk.matzon.bwusage.domain.model.BWEntry;
+import dk.matzon.bwusage.domain.model.BWHistoricalEntry;
+import org.apache.commons.lang3.time.DateUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -19,6 +21,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import javax.net.ssl.SSLContext;
@@ -42,14 +45,16 @@ public class DataGathererImpl implements DataGatherer {
     private final Logger LOGGER = LogManager.getLogger(DataGathererImpl.class);
     private final ScheduledExecutorService scheduledExecutorService;
     private final Repository<BWEntry> repository;
+    private Repository<BWHistoricalEntry> historicalRepository;
     private final Properties properties;
 
     private ScheduledFuture<?> scheduledFuture;
     private int errorCount = 0;
 
-    public DataGathererImpl(ScheduledExecutorService _scheduledExecutorService, Repository<BWEntry> _repository, Properties _properties) {
+    public DataGathererImpl(ScheduledExecutorService _scheduledExecutorService, Repository<BWEntry> _repository, Repository<BWHistoricalEntry> _historicalRepository, Properties _properties) {
         scheduledExecutorService = _scheduledExecutorService;
         repository = _repository;
+        historicalRepository = _historicalRepository;
         properties = _properties;
     }
 
@@ -89,9 +94,10 @@ public class DataGathererImpl implements DataGatherer {
         List<BWEntry> entries = null;
         try {
             // anything in this flow, which is out of order, should result in error count increase due to exceptions being thrown
+            Date now = new Date();
             body = download();
             entries = extract(body);
-            repository.saveAll(entries);
+            persist(now, entries);
             errorCount = 0;
         } catch (Exception _e) {
             LOGGER.warn("Exception occurred while executing main block of datagatherer: " + _e.getMessage(), _e);
@@ -104,6 +110,17 @@ public class DataGathererImpl implements DataGatherer {
         }
     }
 
+    private void persist(Date _now, List<BWEntry> _entries) {
+        repository.saveAll(_entries);
+
+        // add historical too
+        for (BWEntry entry : _entries) {
+            if(DateUtils.isSameDay(_now, entry.getDate())) {
+                historicalRepository.save(new BWHistoricalEntry(_now, entry.getUpload(), entry.getDownload()));
+            }
+        }
+    }
+
     private List<BWEntry> extract(String _page) throws Exception {
         List<BWEntry> entries = new ArrayList<>();
 
@@ -111,16 +128,17 @@ public class DataGathererImpl implements DataGatherer {
 
         // get the table with the elements, expecting groups of 3 (yes, shitty html, nothing sane to select by)
         Elements bwTable = dom.select("[style*=border:1px dotted #000000]");
-        Elements tds = bwTable.select("td");
+
+        // tr seem more reliable than tds directly?
+        Elements trs = bwTable.select("tr");
 
         SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy");
 
-        int groupCount = tds.size() / 3;
-
-        for (int i = 0; i < groupCount; i++) {
-            String date = tds.get(i * 3).text();
-            String upload = tds.get(i * 3 + 1).text();
-            String download = tds.get(i * 3 + 2).text();
+        for (Element tr : trs) {
+            Elements tds = tr.select("td");
+            String date = tds.get(0).text();
+            String upload = tds.get(1).text();
+            String download = tds.get(2).text();
             Date parsedDate = sdf.parse(date);
             BWEntry entry = new BWEntry(parsedDate, upload, download);
             entries.add(entry);

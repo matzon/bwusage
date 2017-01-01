@@ -19,6 +19,7 @@
         <property name="hbm2ddl.auto">update</property>
 
         <mapping class="dk.matzon.bwusage.domain.model.BWEntry"/>
+        <mapping class="dk.matzon.bwusage.domain.model.BWHistoricalEntry"/>
     </session-factory>
 
 </hibernate-configuration>

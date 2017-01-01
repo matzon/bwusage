@@ -6,7 +6,9 @@ import dk.matzon.bwusage.domain.DataGatherer;
 import dk.matzon.bwusage.domain.ReportGenerator;
 import dk.matzon.bwusage.domain.Repository;
 import dk.matzon.bwusage.domain.model.BWEntry;
+import dk.matzon.bwusage.domain.model.BWHistoricalEntry;
 import dk.matzon.bwusage.infrastructure.persistence.BWEntryRepositoryImpl;
+import dk.matzon.bwusage.infrastructure.persistence.BWHistoricalEntryRepositoryImpl;
 import dk.matzon.bwusage.infrastructure.persistence.HibernateUtil;
 import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.apache.logging.log4j.LogManager;
@@ -34,6 +36,8 @@ public class BWUsage {
 
     private Repository<BWEntry> repository;
 
+    private Repository<BWHistoricalEntry> historicalRepository;
+
     private ReportGenerator reportGenerator;
 
     private DataGatherer dataGatherer;
@@ -57,13 +61,14 @@ public class BWUsage {
         // configure db
         SessionFactory sessionFactory = HibernateUtil.getSessionFactory();
         repository = new BWEntryRepositoryImpl(sessionFactory);
+        historicalRepository = new BWHistoricalEntryRepositoryImpl(sessionFactory);
 
         // configure data gather
-        dataGatherer = new DataGathererImpl(scheduledExecutorService, repository, properties);
+        dataGatherer = new DataGathererImpl(scheduledExecutorService, repository, historicalRepository, properties);
         dataGatherer.init();
 
         // configure report generator
-        reportGenerator = new ReportGeneratorImpl(scheduledExecutorService, repository, properties);
+        reportGenerator = new ReportGeneratorImpl(scheduledExecutorService, repository, historicalRepository, properties);
         reportGenerator.init();
 
         active = true;
