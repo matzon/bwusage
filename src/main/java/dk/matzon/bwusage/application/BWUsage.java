@@ -71,6 +71,14 @@ public class BWUsage {
         reportGenerator = new ReportGeneratorImpl(scheduledExecutorService, repository, historicalRepository, properties);
         reportGenerator.init();
 
+        // configure backup
+        scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                HibernateUtil.backup();
+            }
+        }, 1, Long.parseLong(properties.getProperty("app.backupperiod")), TimeUnit.MINUTES);
+
         active = true;
     }
 
@@ -106,6 +114,9 @@ public class BWUsage {
                 break;
             case "lall":
                 reportGenerator.list(ReportGenerator.REPORT_TYPE.ALL);
+                break;
+            case "backup":
+                HibernateUtil.backup();
                 break;
             default:
                 System.out.println("Unknown command '" + command + "'");
