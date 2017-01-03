@@ -142,7 +142,7 @@ public class DataGathererImpl implements DataGatherer {
             Date parsedDate = sdf.parse(date);
             BWEntry entry = new BWEntry(parsedDate, upload, download);
             entries.add(entry);
-            LOGGER.info("Parsed entry: " + entry);
+            LOGGER.debug("Parsed entry: " + entry);
         }
         return entries;
     }
