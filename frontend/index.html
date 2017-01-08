@@ -1,0 +1,26 @@
+<html>
+<head>
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"
+            integrity="sha256-BbhdlvQf/xTY9gja0Dq3HiwQF8LaCRTXxZKRutelT44=" crossorigin="anonymous"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript" src="app.js"></script>
+    <script type="text/javascript">
+      $(document).ready(function() {
+        if(qsParam('mini') === 'true') {
+          $('body p').hide();
+          $('.chart').css('height', '250px');
+        }
+      });
+
+      google.charts.load('current', {'packages':['corechart']});
+      google.charts.setOnLoadCallback(loadData);
+
+    </script>
+</head>
+<body style="font-family: verdana; font-size: small;">
+<p align="center"><a href="?source=all">all</a> | <a href="?source=month">month</a> | <a
+        href="?source=today">today</a></p>
+<div id="chart_bw" class="chart" style="width: 100%; height:500px;"></div>
+<div id="chart_sp" class="chart" style="width: 100%; height:500px;"></div>
+</body>
+</html>
