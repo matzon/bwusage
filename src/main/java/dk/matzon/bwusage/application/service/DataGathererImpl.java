@@ -1,36 +1,17 @@
 package dk.matzon.bwusage.application.service;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dk.matzon.bwusage.domain.DataGatherer;
 import dk.matzon.bwusage.domain.Repository;
 import dk.matzon.bwusage.domain.model.BWEntry;
 import dk.matzon.bwusage.domain.model.BWHistoricalEntry;
+import okhttp3.*;
 import org.apache.commons.lang3.time.DateUtils;
-import org.apache.http.HttpEntity;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpUriRequest;
-import org.apache.http.client.methods.RequestBuilder;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.conn.ssl.TrustStrategy;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.LaxRedirectStrategy;
-import org.apache.http.ssl.SSLContextBuilder;
-import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
-import javax.net.ssl.SSLContext;
-import java.io.IOException;
-import java.security.KeyManagementException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ScheduledExecutorService;
@@ -50,6 +31,8 @@ public class DataGathererImpl implements DataGatherer {
 
     private ScheduledFuture<?> scheduledFuture;
     private int errorCount = 0;
+
+    public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
     public DataGathererImpl(ScheduledExecutorService _scheduledExecutorService, Repository<BWEntry> _repository, Repository<BWHistoricalEntry> _historicalRepository, Properties _properties) {
         scheduledExecutorService = _scheduledExecutorService;
@@ -115,7 +98,7 @@ public class DataGathererImpl implements DataGatherer {
 
         // add historical too
         for (BWEntry entry : _entries) {
-            if(DateUtils.isSameDay(_now, entry.getDate())) {
+            if (DateUtils.isSameDay(_now, entry.getDate())) {
                 historicalRepository.save(new BWHistoricalEntry(_now, entry.getUpload(), entry.getDownload()));
             }
         }
@@ -124,86 +107,80 @@ public class DataGathererImpl implements DataGatherer {
     private List<BWEntry> extract(String _page) throws Exception {
         List<BWEntry> entries = new ArrayList<>();
 
-        Document dom = Jsoup.parse(_page);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 
-        // get the table with the elements, expecting groups of 3 (yes, shitty html, nothing sane to select by)
-        Elements bwTable = dom.select("[style*=border:1px dotted #000000]");
-
-        // tr seem more reliable than tds directly?
-        Elements trs = bwTable.select("tr");
-
-        SimpleDateFormat sdf = new SimpleDateFormat("dd-MM-yyyy");
-
-        for (Element tr : trs) {
-            Elements tds = tr.select("td");
-            String date = tds.get(0).text();
-            String upload = tds.get(1).text();
-            String download = tds.get(2).text();
-            Date parsedDate = sdf.parse(date);
-            BWEntry entry = new BWEntry(parsedDate, upload, download);
-            entries.add(entry);
-            LOGGER.debug("Parsed entry: " + entry);
+        JsonElement jsonElement = new JsonParser().parse(_page);
+        JsonObject jsonObject = jsonElement.getAsJsonObject();
+        Set<Map.Entry<String, JsonElement>> sourceEntries = jsonObject.entrySet();
+        for (Map.Entry<String, JsonElement> sourceEntry : sourceEntries) {
+            JsonElement download = sourceEntry.getValue().getAsJsonObject().get("down");
+            JsonElement upload = sourceEntry.getValue().getAsJsonObject().get("up");
+            Date parsedDate = sdf.parse(sourceEntry.getKey());
+            BWEntry reportEntry = new BWEntry(parsedDate, upload.getAsString(), download.getAsString());
+            entries.add(reportEntry);
         }
         return entries;
     }
 
-    private String download() throws IOException, KeyManagementException, NoSuchAlgorithmException, KeyStoreException {
-        CloseableHttpClient client = null;
+    private String download() {
+        String loginUrl = properties.getProperty("datagatherer.login");
+        String username = properties.getProperty("datagatherer.username");
+        String password = properties.getProperty("datagatherer.password");
+
+        String bandwidthUrl = properties.getProperty("datagatherer.bwpage");
+        String bandwidthMac = properties.getProperty("datagatherer.mac");
+        String bandwidthBuid = properties.getProperty("datagatherer.buid");
+        String bandwidthCase = properties.getProperty("datagatherer.case");
+
         try {
-
-            // setup
-            BasicCookieStore cookieStore = new BasicCookieStore();
-
-            // allow self-signed and untrusted certs
-            SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new TrustStrategy() {
-                public boolean isTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                    return true;
-                }
-            }).build();
-            SSLConnectionSocketFactory sslConnectionSocketFactory = new SSLConnectionSocketFactory(sslContext);
-
-            client = HttpClientBuilder.create()
-                    .setDefaultCookieStore(cookieStore)
-                    .setRedirectStrategy(new LaxRedirectStrategy())
-                    .setSSLSocketFactory(sslConnectionSocketFactory)
-                    .build();
+            OkHttpClient okHttpClient = new OkHttpClient();
 
             // login
-            HttpUriRequest loginRequest = RequestBuilder.post(properties.getProperty("datagatherer.login"))
-                    .addParameter("username", properties.getProperty("datagatherer.username"))
-                    .addParameter("password", properties.getProperty("datagatherer.password"))
-                    .addParameter("command", "login").build();
+            JsonObject loginJsonObject = new JsonObject();
+            loginJsonObject.addProperty("username", username);
+            loginJsonObject.addProperty("password", password);
+            loginJsonObject.addProperty("bu_id", bandwidthBuid);
+            String loginPayload = loginJsonObject.toString();
 
-            CloseableHttpResponse loginResponse = client.execute(loginRequest);
-            if (loginResponse.getStatusLine().getStatusCode() == 200) {
-                // acquire form
-                HttpUriRequest bwUsageRequest = RequestBuilder.get(properties.getProperty("datagatherer.bwpage")).build();
-                CloseableHttpResponse bwUsageResponse = client.execute(bwUsageRequest);
-                if (bwUsageResponse.getStatusLine().getStatusCode() == 200) {
-                    HttpEntity entity = bwUsageResponse.getEntity();
-                    return EntityUtils.toString(entity);
-                } else {
-                    logWithBody(bwUsageResponse, "Unable to login");
-                }
-            } else {
-                logWithBody(loginResponse, "Unable to login");
+            RequestBody loginRequestBody = RequestBody.create(JSON, loginPayload);
+            Request loginRequest = new Request.Builder()
+                    .url(loginUrl)
+                    .post(loginRequestBody)
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Content-Type", "text/plain")
+                    .build();
+            Response loginResponse = okHttpClient.newCall(loginRequest).execute();
+
+            String loginResponseBody = loginResponse.body().string();
+            JsonElement loginResponseJson = new JsonParser().parse(loginResponseBody);
+
+            String jwt = loginResponseJson.getAsJsonObject().get("token").getAsString();
+
+            // make API request for BW data
+            JsonObject bwJsonObject = new JsonObject();
+            bwJsonObject.addProperty("account_user_id", username);
+            bwJsonObject.addProperty("case", bandwidthCase);
+            bwJsonObject.addProperty("bu_id", bandwidthBuid);
+            bwJsonObject.addProperty("mac", bandwidthMac);
+            String bwPayload = bwJsonObject.toString();
+
+            RequestBody bwRequestBody = RequestBody.create(JSON, bwPayload);
+            Request bwRequest = new Request.Builder()
+                    .url(bandwidthUrl)
+                    .post(bwRequestBody)
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Content-Type", "text/plain")
+                    .addHeader("authorization", "Bearer " + jwt)
+                    .build();
+
+            Response bwResponse = okHttpClient.newCall(bwRequest).execute();
+            if (bwResponse.isSuccessful() && bwResponse.body() != null) {
+                return bwResponse.body().string();
             }
-        } finally {
-            if (client != null) {
-                client.close();
-            }
+        } catch (Exception e) {
+            LOGGER.error("Exception while downloading BW data: " + e.getMessage(), e);
         }
         return null;
     }
 
-    private void logWithBody(CloseableHttpResponse _response, String _message) {
-        String body = "";
-        try {
-            HttpEntity entity = _response.getEntity();
-            body = EntityUtils.toString(entity);
-        } catch (Exception _e) {
-            /* ignored */
-        }
-        throw new RuntimeException(_message + ". StatusLine: " + _response.getStatusLine() + ", Body: " + body);
-    }
 }
