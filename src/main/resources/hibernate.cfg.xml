@@ -6,7 +6,7 @@
 <hibernate-configuration>
 
     <session-factory>
-    <property name="connection.driver_class">org.hsqldb.jdbcDriver</property>
+        <property name="connection.driver_class">org.hsqldb.jdbcDriver</property>
         <property name="connection.url">jdbc:hsqldb:file:data/db/bwusage.db;mvcc=true</property>
         <property name="connection.pool_size">1</property>
         <property name="dialect">org.hibernate.dialect.HSQLDialect</property>

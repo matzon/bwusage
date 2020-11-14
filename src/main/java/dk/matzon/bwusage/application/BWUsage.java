@@ -14,6 +14,7 @@ import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.hibernate.SessionFactory;
+import org.hsqldb.lib.StopWatch;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,10 +45,13 @@ public class BWUsage {
 
     private volatile boolean active;
 
+    private final StopWatch stopWatch;
+
     public BWUsage() {
         active = false;
         properties = new Properties();
         scheduledExecutorService = Executors.newScheduledThreadPool(2);
+        stopWatch = new StopWatch();
     }
 
     private void init() throws IOException {
@@ -59,9 +63,11 @@ public class BWUsage {
         properties.load(configInputStream);
 
         // configure db
+        stopWatch.zero();
         SessionFactory sessionFactory = HibernateUtil.getSessionFactory();
         repository = new BWEntryRepositoryImpl(sessionFactory);
         historicalRepository = new BWHistoricalEntryRepositoryImpl(sessionFactory);
+        LOGGER.info(stopWatch.currentElapsedTimeToMessage("Initialized DB"));
 
         // configure data gather
         dataGatherer = new DataGathererImpl(scheduledExecutorService, repository, historicalRepository, properties);
@@ -93,6 +99,7 @@ public class BWUsage {
     }
 
     private void handleCommand(String _command) {
+        stopWatch.zero();
         String command = _command.trim().toLowerCase();
         switch (command) {
             case "quit":
@@ -122,6 +129,7 @@ public class BWUsage {
                 System.out.println("Unknown command '" + command + "'");
                 break;
         }
+        LOGGER.info(stopWatch.currentElapsedTimeToMessage("Processed command '" + command + "'"));
     }
 
     private void shutdown() {
@@ -156,7 +164,7 @@ public class BWUsage {
 
         Scanner input = new Scanner(System.in);
         while (bwUsage.isRunning()) {
-            System.out.printf("(" + bwUsage.timeForNextDataJob() + ") $> ");
+            System.out.print("(" + bwUsage.timeForNextDataJob() + ") $> ");
             String command = input.nextLine();
             bwUsage.handleCommand(command);
         }

@@ -6,3 +6,5 @@ target/
 /src/main/resources/config.properties
 /data/
 /logs/
+setup.txt
+id_rsa*
