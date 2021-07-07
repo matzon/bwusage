@@ -125,11 +125,24 @@ public class BWUsage {
             case "backup":
                 HibernateUtil.backup();
                 break;
+            case "help":
+                printCommands();
             default:
                 System.out.println("Unknown command '" + command + "'");
                 break;
         }
         LOGGER.info(stopWatch.currentElapsedTimeToMessage("Processed command '" + command + "'"));
+    }
+
+    private void printCommands() {
+        System.out.println("quit - exit application");
+        System.out.println("gather - download data");
+        System.out.println("report - generate all reports");
+        System.out.println("ltoday - list bandwidth usage for today");
+        System.out.println("lmonth - list bandwidth usage for the current month");
+        System.out.println("lall - list bandwidth usage for all time");
+        System.out.println("backup - perform a backup of the database");
+        System.out.println();
     }
 
     private void shutdown() {
