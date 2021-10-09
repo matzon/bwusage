@@ -17,23 +17,19 @@ import java.util.List;
 public abstract class BWAbstractRepositoryImpl<T> implements Repository<T> {
 
     private final SessionFactory sessionFactory;
-    private Class<T> clazz;
+    private final Class<T> clazz;
 
     public BWAbstractRepositoryImpl(SessionFactory _sessionFactory, Class<T> _class) {
         sessionFactory = _sessionFactory;
         clazz = _class;
     }
 
-    @SuppressWarnings("unchecked")
     public List<T> findAll() {
-        List<T> result = withTransactionableSession(new TransactionableSession<List<T>>() {
-            @Override
-            public List<T> execute(Session _session, Transaction _transaction) {
-                Query query = _session.createQuery("from " + clazz.getName());
-                List list = query.list();
-                _transaction.commit();
-                return list;
-            }
+        List<T> result = withTransactionableSession((_session, _transaction) -> {
+            Query<T> query = _session.createQuery("from " + clazz.getName(), clazz);
+            List<T> list = query.list();
+            _transaction.commit();
+            return list;
         });
 
         if (result == null) {
@@ -43,16 +39,13 @@ public abstract class BWAbstractRepositoryImpl<T> implements Repository<T> {
     }
 
     public List<T> findByDate(final Date _from, final Date _to) {
-        List<T> result = withTransactionableSession(new TransactionableSession<List<T>>() {
-            @Override
-            public List<T> execute(Session _session, Transaction _transaction) {
-                Query query = _session.createQuery("from " + clazz.getName() + " where date BETWEEN :fromDate AND :endDate");
-                query.setParameter("fromDate", _from);
-                query.setParameter("endDate", _to);
-                List list = query.list();
-                _transaction.commit();
-                return list;
-            }
+        List<T> result = withTransactionableSession((_session, _transaction) -> {
+            Query<T> query = _session.createQuery("from " + clazz.getName() + " where date BETWEEN :fromDate AND :endDate", clazz);
+            query.setParameter("fromDate", _from);
+            query.setParameter("endDate", _to);
+            List<T> list = query.list();
+            _transaction.commit();
+            return list;
         });
 
         if (result == null) {
@@ -62,39 +55,30 @@ public abstract class BWAbstractRepositoryImpl<T> implements Repository<T> {
     }
 
     public T save(final T _entity) {
-        return withTransactionableSession(new TransactionableSession<T>() {
-            @Override
-            public T execute(Session _session, Transaction _transaction) {
-                _session.saveOrUpdate(_entity);
-                _transaction.commit();
-                return _entity;
-            }
+        return withTransactionableSession((_session, _transaction) -> {
+            _session.saveOrUpdate(_entity);
+            _transaction.commit();
+            return _entity;
         });
     }
 
     public boolean delete(final T _entity) {
-        return withTransactionableSession(new TransactionableSession<Boolean>() {
-            @Override
-            public Boolean execute(Session _session, Transaction _transaction) {
-                _session.delete(_entity);
-                _transaction.commit();
-                return true;
-            }
+        return withTransactionableSession((_session, _transaction) -> {
+            _session.delete(_entity);
+            _transaction.commit();
+            return true;
         });
     }
 
     @Override
     public boolean saveAll(final List<T> _entities) {
-        return withTransactionableSession(new TransactionableSession<Boolean>() {
-            @Override
-            public Boolean execute(Session _session, Transaction _transaction) {
-                // TODO: 01-01-2017 - batch insert/update
-                for (T entry : _entities) {
-                    _session.saveOrUpdate(entry);
-                }
-                _transaction.commit();
-                return true;
+        return withTransactionableSession((_session, _transaction) -> {
+            // TODO: 01-01-2017 - batch insert/update
+            for (T entry : _entities) {
+                _session.saveOrUpdate(entry);
             }
+            _transaction.commit();
+            return true;
         });
     }
 

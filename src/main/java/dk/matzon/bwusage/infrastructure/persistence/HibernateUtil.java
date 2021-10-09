@@ -17,7 +17,7 @@ public class HibernateUtil {
 
     private static final Logger LOGGER = LogManager.getLogger(HibernateUtil.class);
 
-    private static final SessionFactory sessionFactory = buildSessionFactory();
+    private static final SessionFactory SESSION_FACTORY = buildSessionFactory();
 
     private static SessionFactory buildSessionFactory() {
         final StandardServiceRegistry registry = new StandardServiceRegistryBuilder()
@@ -34,29 +34,23 @@ public class HibernateUtil {
     }
 
     public static SessionFactory getSessionFactory() {
-        return sessionFactory;
+        return SESSION_FACTORY;
     }
 
     /**
      * HSQLDB centric backup of db
      */
     public static void backup() {
-        Session session = null;
         Transaction transaction = null;
-        try {
-            session = sessionFactory.getCurrentSession();
+        try (Session session = SESSION_FACTORY.getCurrentSession()) {
             transaction = session.beginTransaction();
-            Query backupQuery = session.createNativeQuery(String.format("BACKUP DATABASE TO '%s' NOT BLOCKING", "data/db/backup/"));
+            Query<?> backupQuery = session.createNativeQuery(String.format("BACKUP DATABASE TO '%s' NOT BLOCKING", "data/db/backup/"));
             backupQuery.executeUpdate();
             transaction.commit();
         } catch (Exception e) {
             LOGGER.warn("Exception while performing backup: " + e.getMessage(), e);
             if (transaction != null) {
                 transaction.rollback();
-            }
-        } finally {
-            if (session != null) {
-                session.close();
             }
         }
     }
