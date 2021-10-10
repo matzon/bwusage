@@ -99,7 +99,7 @@ function processSpeed(data, source) {
 	$.each(data, function (k, v) {
 		var fUpload = formatBytes(v.upload);
 		var fDownload = formatBytes(v.download);
-		calculateSpeed(source, pTime, new Date(v.date), pUpload, fUpload, pDownload, fDownload, spdata);
+		calculateSpeed(source, pTime, v.date, pUpload, fUpload, pDownload, fDownload, spdata);
 		pUpload = fUpload;
 		pDownload = fDownload;
 		pTime = new Date(v.date);
@@ -108,13 +108,14 @@ function processSpeed(data, source) {
 	drawSpChart(spdata, source);
 }
 
-function calculateSpeed(source, pTime, cTime, pUpload, cUpload, pDownload, cDownload, spdata) {
+function calculateSpeed(source, pTime, cTimeStr, pUpload, cUpload, pDownload, cDownload, spdata) {
+	var cTimeDate = new Date(cTimeStr);
 	if(pTime === null) {
-		pTime = new Date(cTime.getFullYear(), cTime.getMonth(), cTime.getDate());
+		pTime = new Date(cTimeDate.getFullYear(), cTimeDate.getMonth(), cTimeDate.getDate());
 	}
 	var timeSpend;
 	if(source === 'day' || source === 'today') {
-		timeSpend = (cTime.getTime() - pTime.getTime()) / 1000;
+		timeSpend = (cTimeDate.getTime() - pTime.getTime()) / 1000;
 	} else {
 		timeSpend = 86400;
 		pUpload = 0;
@@ -131,7 +132,7 @@ function calculateSpeed(source, pTime, cTime, pUpload, cUpload, pDownload, cDown
 
 	//console.log(formatDate(pTime, 'today') + '-' + formatDate(cTime, 'today') + ': ' + bytesDownloadedFormatted + ' where downloaded (' + speedDown + '/s) and ' +
 	//	bytesUploadedFormatted + ' were uploaded (' + speedUp + '/s)');
-	spdata.push([formatDate(cTime, 'today'), bytesUploaded / timeSpend, bytesDownloaded / timeSpend]);
+	spdata.push([formatDate(cTimeStr, source), bytesUploaded / timeSpend, bytesDownloaded / timeSpend]);
 }
 
 
@@ -217,11 +218,13 @@ function drawBwChart(bwdata, source) {
 
 function drawSpChart(spdata, source) {
 	var data = google.visualization.arrayToDataTable(spdata);
-	var ranges = data.getColumnRange(2);
 
-	formatter.format(data, 1, '/s');
-	formatter.format(data, 2, '/s');
-	var max = ranges.max * 1;
+	var rangesDown = data.getColumnRange(2);
+    var rangesUp = data.getColumnRange(1);
+
+    formatter.format(data, 1, '/s');
+    formatter.format(data, 2, '/s');
+    var max = Math.max(rangesDown.max, rangesUp.max) * 1;
 
 	var options = {
 		title: 'Speed',
