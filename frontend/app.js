@@ -9,7 +9,7 @@ function formatDate(input, source) {
 		var date = new Date(input);
 		return addZ(date.getHours()) + ':' + addZ(date.getMinutes());
 	} else {
-		return input.substr(0, input.indexOf(','));
+		return input.substr(0, input.indexOf(',')) + ", " + new Date(input).getFullYear();
 	}
 }
 
@@ -206,7 +206,7 @@ function drawBwChart(bwdata, source) {
 		google.visualization.events.addListener(chart, 'select', function() {
 			var selection = chart.getSelection();
 			var r = selection[0].row, c = selection[0].column;
-			var date = new Date(data.getValue(r, 0) + ', ' + new Date().getFullYear());
+			var date = (source === 'all') ? new Date(data.getValue(r, 0)) : new Date(data.getValue(r, 0) + ', ' + new Date().getFullYear());
 			var dateString = date.getFullYear() + '-' + (date.getMonth()+1) + '-' + date.getDate();
 			var locationString = "/bw/?source=day&date="+dateString;
 			history.replaceState({source: 'day', date: dateString}, 'selection: ' + dateString, locationString);
