@@ -122,16 +122,21 @@ function calculateSpeed(source, pTime, cTimeStr, pUpload, cUpload, pDownload, cD
 		pDownload = 0;
 	}
 
-	var bytesUploaded 				= cUpload - pUpload;
-	var bytesUploadedFormatted 		= formatter.formatValue(cUpload - pUpload);
+    // simply skip data-points with no time spend (observed during summer/winter -time)
+	if(timeSpend == 0) {
+		return;
+	}
+
+	var bytesUploaded 				= Math.max(0, cUpload - pUpload);
+	var bytesUploadedFormatted 		= formatter.formatValue(bytesUploaded);
 	var speedUp 					= formatter.formatValue(bytesUploaded / timeSpend);
 
-	var bytesDownloaded 			= cDownload - pDownload;
+	var bytesDownloaded 			= Math.max(0, cDownload - pDownload);
 	var bytesDownloadedFormatted 	= formatter.formatValue(bytesDownloaded);
 	var speedDown 					= formatter.formatValue(bytesDownloaded / timeSpend);
 
-	//console.log(formatDate(pTime, 'today') + '-' + formatDate(cTime, 'today') + ': ' + bytesDownloadedFormatted + ' where downloaded (' + speedDown + '/s) and ' +
-	//	bytesUploadedFormatted + ' were uploaded (' + speedUp + '/s)');
+// 	console.log(formatDate(pTime, 'today') + '-' + formatDate(cTimeDate, 'today') + ': ' + bytesDownloadedFormatted + ' were downloaded (' + speedDown + '/s) and ' +
+// 		bytesUploadedFormatted + ' were uploaded (' + speedUp + '/s)');
 	spdata.push([formatDate(cTimeStr, source), bytesUploaded / timeSpend, bytesDownloaded / timeSpend]);
 }
 
